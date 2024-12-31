@@ -62,7 +62,7 @@ public class ContractComparer
         {
             if (yFieldDictionary.TryGetValue(xField.Number, out var yField))
             {
-                return xField.TypeName == yField.TypeName ? ContractComparisonResult.Equal : ContractComparisonResult.NotCompatible; // will work only for primitive types fields as for submessage fields we will need to check for structure compatibility
+                return xField.type == yField.type ? ContractComparisonResult.Equal : ContractComparisonResult.NotCompatible; // will work only for primitive types fields as for submessage fields we will need to check for structure compatibility
             }
 
             return ContractComparisonResult.NotCompatible;
