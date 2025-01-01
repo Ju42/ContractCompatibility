@@ -81,6 +81,11 @@ public class ContractComparer
             {
                 return ContractComparisonResult.NotCompatible;
             }
+
+            if (AreFieldOptionsIncompatible(xField.Options, yField.Options))
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
             
             if (xField.type != FieldDescriptorProto.Type.TypeMessage)
             {
@@ -89,6 +94,14 @@ public class ContractComparer
 
             return CompareMessageType(xField.GetMessageType(), yField.GetMessageType());
         });
+    }
+
+    private bool AreFieldOptionsIncompatible(FieldOptions? xFieldOptions, FieldOptions? yFieldOptions)
+    {
+        return xFieldOptions == null && yFieldOptions != null
+               || xFieldOptions != null && yFieldOptions == null
+               || xFieldOptions != null && yFieldOptions != null && xFieldOptions.Packed != yFieldOptions.Packed;
+
     }
     
     private static ContractComparisonResult AggregateContractComparisonResults(IEnumerable<ContractComparisonResult> contractComparisonResults)
