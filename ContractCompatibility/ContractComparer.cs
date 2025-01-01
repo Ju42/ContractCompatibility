@@ -76,6 +76,11 @@ public class ContractComparer
             {
                 return ContractComparisonResult.NotCompatible;
             }
+
+            if (xField.label != yField.label)
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
             
             if (xField.type != FieldDescriptorProto.Type.TypeMessage)
             {
@@ -83,7 +88,6 @@ public class ContractComparer
             }
 
             return CompareMessageType(xField.GetMessageType(), yField.GetMessageType());
-
         });
     }
     
