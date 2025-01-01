@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+message SearchRequest {
+  optional string query = 1;
+  optional int32 page_number = 2;
+  optional int32 results_per_page = 3;
+}
+
+message SearchRequestWrapper {
+  optional SearchRequest request = 1;
+}

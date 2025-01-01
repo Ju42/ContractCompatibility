@@ -1,0 +1,7 @@
+syntax = "proto2";
+
+message Toto {
+  optional string tutu = 1;
+  optional int32 titi = 2;
+  optional int32 tata = 3;
+}

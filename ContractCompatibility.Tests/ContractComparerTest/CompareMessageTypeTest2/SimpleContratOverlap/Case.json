@@ -1,0 +1,7 @@
+[
+  "ContractX.proto",
+  "SearchRequest",
+  "ContractY.proto",
+  "SearchRequest",
+  "NotCompatible"
+]
