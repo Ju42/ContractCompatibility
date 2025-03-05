@@ -5,15 +5,15 @@ namespace ContractCompatibility;
 
 public class ContractComparer
 {
-    private readonly FileDescriptorProto _xFileDescriptorProto;
-    private readonly FileDescriptorProto _yFileDescriptorProto;
+    private readonly FileDescriptorProto _consumerFileDescriptorProto;
+    private readonly FileDescriptorProto _producerFileDescriptorProto;
 
-    public ContractComparer(ProtoFile x, ProtoFile y)
+    public ContractComparer(ProtoFile consumer, ProtoFile producer)
     {
-        ArgumentNullException.ThrowIfNull(x, nameof(x));
-        ArgumentNullException.ThrowIfNull(y, nameof(y));
-        _xFileDescriptorProto = ToFileDescriptorProto(x);
-        _yFileDescriptorProto = ToFileDescriptorProto(y);
+        ArgumentNullException.ThrowIfNull(consumer, nameof(consumer));
+        ArgumentNullException.ThrowIfNull(producer, nameof(producer));
+        _consumerFileDescriptorProto = ToFileDescriptorProto(consumer);
+        _producerFileDescriptorProto = ToFileDescriptorProto(producer);
     }
 
     private static FileDescriptorProto ToFileDescriptorProto(ProtoFile protoFile)
@@ -25,82 +25,89 @@ public class ContractComparer
         return fileDescriptorSet.Files.Single();
     }
 
-    public ContractComparisonResult CompareMessageType(string messageTypeNameX, string messageTypeNameY)
+    public ContractComparisonResult CompareMessageType(string consumerMessageTypeName, string producerMessageTypeName)
     {
-        ArgumentNullException.ThrowIfNull(messageTypeNameX, nameof(messageTypeNameX));
-        ArgumentNullException.ThrowIfNull(messageTypeNameY, nameof(messageTypeNameY));
+        ArgumentNullException.ThrowIfNull(consumerMessageTypeName, nameof(consumerMessageTypeName));
+        ArgumentNullException.ThrowIfNull(producerMessageTypeName, nameof(producerMessageTypeName));
+        
+        var consumerMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMessageTypeName);
 
-        var messageTypeX = _xFileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == messageTypeNameX);
+        var producerMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMessageTypeName);
 
-        var messageTypeY = _yFileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == messageTypeNameY);
-
-        return CompareMessageType(messageTypeX, messageTypeY);
+        return CompareMessageType(consumerMessageType, producerMessageType);
     }
 
-    private ContractComparisonResult CompareMessageType(DescriptorProto messageTypeX, DescriptorProto messageTypeY)
+    private DescriptorProto? GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeName)
     {
-        return CompareDescriptorProto(messageTypeX, messageTypeY);
+        var pathToType = messageTypeName.Split('.');
+        var higherLevelMessageType = fileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == pathToType.First());
+        return pathToType.Skip(1).Aggregate(higherLevelMessageType,
+            (currentMessageType, nestedTypeName) =>
+                currentMessageType.NestedTypes.First(nestedType => nestedType.Name == nestedTypeName));
     }
 
-    private ContractComparisonResult CompareMessageTypes(string messageTypeNameX, IReadOnlyList<DescriptorProto> xDescriptorProtos, string messageTypeNameY,
-        IReadOnlyList<DescriptorProto> yDescriptorProtos)
+    private ContractComparisonResult CompareMessageType(DescriptorProto consumerMessageType, DescriptorProto producerMessageType)
     {
-        // order should not matter thus instead of zipping types alongside each other we must find types in both files that
-        // match each other.
-        // in order to accomplish this Ii need to match types against each other
-        return AggregateContractComparisonResults(xDescriptorProtos.Zip(yDescriptorProtos, CompareDescriptorProto));
+        return CompareDescriptorProto(consumerMessageType, producerMessageType);
     }
 
-    private ContractComparisonResult CompareDescriptorProto(DescriptorProto xDescriptorProto, DescriptorProto yDescriptorProto)
+    private ContractComparisonResult CompareDescriptorProto(DescriptorProto consumerDescriptorProto, DescriptorProto producerDescriptorProto)
     {
-        var xFieldDescriptorProtos = xDescriptorProto.Fields;
-        var yFieldDescriptorProtos = yDescriptorProto.Fields;
-        return AggregateContractComparisonResults(xFieldDescriptorProtos.Count == yFieldDescriptorProtos.Count
-            ? CompareFieldDescriptorProtos(xFieldDescriptorProtos, yFieldDescriptorProtos)
-            : xFieldDescriptorProtos.Count > yFieldDescriptorProtos.Count ?
-                CompareFieldDescriptorProtos(yFieldDescriptorProtos, xFieldDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
-                : CompareFieldDescriptorProtos(xFieldDescriptorProtos, yFieldDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+        var consumerFieldDescriptorProtos = consumerDescriptorProto.Fields;
+        var producerFieldDescriptorProtos = producerDescriptorProto.Fields;
+        return AggregateContractComparisonResults(consumerFieldDescriptorProtos.Count == producerFieldDescriptorProtos.Count
+            ? CompareFieldDescriptorProtos(consumerFieldDescriptorProtos, producerFieldDescriptorProtos)
+            : consumerFieldDescriptorProtos.Count > producerFieldDescriptorProtos.Count ?
+                CompareFieldDescriptorProtos(producerFieldDescriptorProtos, consumerFieldDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
+                : CompareFieldDescriptorProtos(consumerFieldDescriptorProtos, producerFieldDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
     }
 
-    private IEnumerable<ContractComparisonResult> CompareFieldDescriptorProtos(IEnumerable<FieldDescriptorProto> xFields, IEnumerable<FieldDescriptorProto> yFields)
+    private IEnumerable<ContractComparisonResult> CompareFieldDescriptorProtos(IEnumerable<FieldDescriptorProto> consumerFields, IEnumerable<FieldDescriptorProto> producerFields)
     {
-        var yFieldDictionary = yFields.ToDictionary(field => field.Number);
+        var producerFieldDictionary = producerFields.ToDictionary(field => field.Number);
 
-        return xFields.Select(xField =>
+        return consumerFields.Select(consumerField =>
         {
-            if (!yFieldDictionary.TryGetValue(xField.Number, out var yField))
+            if (!producerFieldDictionary.TryGetValue(consumerField.Number, out var producerField))
             {
                 return ContractComparisonResult.NotCompatible;
             }
-            if (xField.type != yField.type)
-            {
-                return ContractComparisonResult.NotCompatible;
-            }
-
-            if (xField.label != yField.label)
+            if (consumerField.type != producerField.type)
             {
                 return ContractComparisonResult.NotCompatible;
             }
 
-            if (AreFieldOptionsIncompatible(xField.Options, yField.Options))
+            if (consumerField.label != producerField.label)
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
+
+            if (AreFieldOptionsIncompatible(consumerField.Options, producerField.Options))
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
+
+            if (consumerField.DefaultValue != producerField.DefaultValue)
             {
                 return ContractComparisonResult.NotCompatible;
             }
             
-            if (xField.type != FieldDescriptorProto.Type.TypeMessage)
+            if (consumerField.type != FieldDescriptorProto.Type.TypeMessage)
             {
                 return ContractComparisonResult.Equal;
             }
 
-            return CompareMessageType(xField.GetMessageType(), yField.GetMessageType());
+            return CompareMessageType(consumerField.GetMessageType(), producerField.GetMessageType());
         });
     }
 
-    private bool AreFieldOptionsIncompatible(FieldOptions? xFieldOptions, FieldOptions? yFieldOptions)
+    private static bool AreFieldOptionsIncompatible(FieldOptions? consumerFieldOptions, FieldOptions? producerFieldOptions)
     {
-        return xFieldOptions == null && yFieldOptions != null
-               || xFieldOptions != null && yFieldOptions == null
-               || xFieldOptions != null && yFieldOptions != null && xFieldOptions.Packed != yFieldOptions.Packed;
+        return consumerFieldOptions == null && producerFieldOptions != null
+               || consumerFieldOptions != null && producerFieldOptions == null
+               || consumerFieldOptions != null
+                   && producerFieldOptions != null
+                   && consumerFieldOptions.Packed != producerFieldOptions.Packed;
 
     }
     

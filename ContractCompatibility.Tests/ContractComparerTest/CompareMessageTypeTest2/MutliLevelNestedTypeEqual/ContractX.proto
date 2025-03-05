@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+message SearchResponse {
+  message Level1 {
+    message Level2 {
+      message Level3 {
+        optional string url = 1;
+        optional string title = 2;
+        repeated string snippets = 3;
+      }
+    }
+  }
+}

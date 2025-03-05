@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+message MasterType {
+  message Result {
+    optional string url = 1;
+    optional string title = 2;
+    repeated string snippets = 3;
+  }
+}
+
+message SearchResponse {
+  repeated MasterType.Result results = 1;
+}
