@@ -1,0 +1,8 @@
+syntax = "proto2";
+
+message SearchResponse {
+  oneof ResultOneof {
+    string error = 2;
+  };
+  optional int32 status_code = 3;
+}
