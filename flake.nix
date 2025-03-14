@@ -15,6 +15,7 @@
       nativeBuildInputs = with pkgs; [
         jetbrains.rider
         dotnet-sdk_9
+        mono
       ];
     };
   };
