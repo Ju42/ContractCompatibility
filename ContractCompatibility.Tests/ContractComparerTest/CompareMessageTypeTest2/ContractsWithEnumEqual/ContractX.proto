@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+enum StatusCode {
+  STATUS_CODE_UNSPECIFIED = 0;
+  STATUS_CODE_OK = 200;
+  STATUS_CODE_NOT_FOUND = 404;
+}
+
+message SearchResponse {
+  optional StatusCode status_code = 1;
+}

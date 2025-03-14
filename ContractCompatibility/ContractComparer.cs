@@ -37,7 +37,7 @@ public class ContractComparer
         return CompareMessageType(consumerMessageType, producerMessageType);
     }
 
-    private DescriptorProto? GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeName)
+    private static DescriptorProto GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeName)
     {
         var pathToType = messageTypeName.Split('.');
         var higherLevelMessageType = fileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == pathToType.First());
@@ -72,6 +72,7 @@ public class ContractComparer
             {
                 return ContractComparisonResult.NotCompatible;
             }
+
             if (consumerField.type != producerField.type)
             {
                 return ContractComparisonResult.NotCompatible;
@@ -91,13 +92,13 @@ public class ContractComparer
             {
                 return ContractComparisonResult.NotCompatible;
             }
-            
-            if (consumerField.type != FieldDescriptorProto.Type.TypeMessage)
-            {
-                return ContractComparisonResult.Equal;
-            }
 
-            return CompareMessageType(consumerField.GetMessageType(), producerField.GetMessageType());
+            return consumerField.type switch
+            {
+                FieldDescriptorProto.Type.TypeMessage => CompareMessageType(consumerField.GetMessageType(), producerField.GetMessageType()),
+                FieldDescriptorProto.Type.TypeEnum => CompareEnumType(consumerField.GetEnumType(), producerField.GetEnumType()),
+                _ => ContractComparisonResult.Equal
+            };
         });
     }
 
@@ -110,7 +111,30 @@ public class ContractComparer
                    && consumerFieldOptions.Packed != producerFieldOptions.Packed;
 
     }
-    
+
+    private ContractComparisonResult CompareEnumType(EnumDescriptorProto consumerEnumDescriptorProto, EnumDescriptorProto producerEnumDescriptorProto)
+    {
+        var consumerEnumValueDescriptorProtos = consumerEnumDescriptorProto.Values;
+        var producerEnumValueDescriptorProtos = producerEnumDescriptorProto.Values;
+        return AggregateContractComparisonResults(
+            consumerEnumValueDescriptorProtos.Count == producerEnumValueDescriptorProtos.Count
+                ? CompareEnumValueDescriptorProtos(consumerEnumValueDescriptorProtos, producerEnumValueDescriptorProtos)
+                : consumerEnumValueDescriptorProtos.Count > producerEnumValueDescriptorProtos.Count
+                    ? CompareEnumValueDescriptorProtos(producerEnumValueDescriptorProtos, consumerEnumValueDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
+                    : CompareEnumValueDescriptorProtos(consumerEnumValueDescriptorProtos, producerEnumValueDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+    }
+
+    private static IEnumerable<ContractComparisonResult> CompareEnumValueDescriptorProtos(
+        IEnumerable<EnumValueDescriptorProto> consumerEnumValues,
+        IEnumerable<EnumValueDescriptorProto> producerEnumValues)
+    {
+        var producerEnumValuesDictionary = producerEnumValues.ToDictionary(enumValues => enumValues.Number);
+        
+        return consumerEnumValues.Select(consumerEnumValue => producerEnumValuesDictionary.ContainsKey(consumerEnumValue.Number) ?
+            ContractComparisonResult.Equal
+            : ContractComparisonResult.NotCompatible);
+    }
+
     private static ContractComparisonResult AggregateContractComparisonResults(IEnumerable<ContractComparisonResult> contractComparisonResults)
     {
         var aggregatedContractComparisonResult = ContractComparisonResult.Equal;
