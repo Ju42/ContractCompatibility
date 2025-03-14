@@ -1,0 +1,8 @@
+stages:
+  - test
+
+test:
+  stage: test
+  image: nixos/nix:2.24.12
+  script:
+    - nix --extra-experimental-features "nix-command flakes" develop .#ci --command bash -c 'dotnet test'
