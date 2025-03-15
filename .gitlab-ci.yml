@@ -1,8 +1,33 @@
 stages:
   - test
+  - package
+  - publish
+
+default: 
+  image: nixos/nix:2.24.12
+
+variables:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+  COMMAND_WRAPPER: "nix develop .#ci --command bash -c"
 
 test:
   stage: test
-  image: nixos/nix:2.24.12
   script:
-    - nix --extra-experimental-features "nix-command flakes" develop .#ci --command bash -c 'dotnet test'
+    - ${COMMAND_WRAPPER} "dotnet test"
+
+package:
+  stage: package
+  script:
+    - ${COMMAND_WRAPPER} "dotnet pack --configuration Release --output nupkg -p:AssemblyVersion=${CI_COMMIT_TAG} -p:Version=${CI_COMMIT_TAG}"
+  artifacts:
+    paths:
+      - nupkg
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+
+publish:
+  stage: publish
+  script:
+    - ${COMMAND_WRAPPER} "dotnet nuget push nupkg/ --api-key ${NUGET_API_KEY} --source 'https://api.nuget.org/v3/index.json'"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
