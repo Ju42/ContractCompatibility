@@ -10,8 +10,13 @@ public class ContractComparer
 
     public ContractComparer(ProtoFile consumer, ProtoFile producer)
     {
+#if NETSTANDARD2_0
+        if (consumer == null) throw new ArgumentNullException(nameof(consumer));
+        if (producer == null) throw new ArgumentNullException(nameof(producer));
+#else
         ArgumentNullException.ThrowIfNull(consumer, nameof(consumer));
         ArgumentNullException.ThrowIfNull(producer, nameof(producer));
+#endif
         _consumerFileDescriptorProto = ToFileDescriptorProto(consumer);
         _producerFileDescriptorProto = ToFileDescriptorProto(producer);
     }
@@ -27,8 +32,13 @@ public class ContractComparer
 
     public ContractComparisonResult CompareMessageType(string consumerMessageTypeName, string producerMessageTypeName)
     {
+#if NETSTANDARD2_0
+        if (consumerMessageTypeName == null) throw new ArgumentNullException(nameof(consumerMessageTypeName));
+        if (producerMessageTypeName == null) throw new ArgumentNullException(nameof(producerMessageTypeName));
+#else
         ArgumentNullException.ThrowIfNull(consumerMessageTypeName, nameof(consumerMessageTypeName));
         ArgumentNullException.ThrowIfNull(producerMessageTypeName, nameof(producerMessageTypeName));
+#endif
         
         var consumerMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMessageTypeName);
 
