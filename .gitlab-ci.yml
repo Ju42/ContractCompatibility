@@ -13,7 +13,17 @@ variables:
 test:
   stage: test
   script:
-    - ${COMMAND_WRAPPER} "dotnet test"
+    - ${COMMAND_WRAPPER} "dotnet test --collect:'XPlat Code Coverage' --logger:junit --results-directory TestResults"
+  artifacts:
+    when: always
+    paths:
+      - TestResults/TestResults.xml
+      - TestResults/*/coverage.cobertura.xml
+    reports:
+      junit: TestResults/TestResults.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: TestResults/*/coverage.cobertura.xml
 
 package:
   stage: package
