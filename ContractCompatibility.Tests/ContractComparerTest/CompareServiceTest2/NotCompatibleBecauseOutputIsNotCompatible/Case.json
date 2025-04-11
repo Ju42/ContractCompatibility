@@ -1,0 +1,7 @@
+[
+  "ContractX.proto",
+  ".SearchService",
+  "ContractY.proto",
+  ".SearchService",
+  "NotCompatible"
+]

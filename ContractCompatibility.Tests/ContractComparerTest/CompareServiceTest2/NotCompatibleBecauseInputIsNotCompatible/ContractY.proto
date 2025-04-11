@@ -1,0 +1,14 @@
+syntax = "proto2";
+
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+message SearchRequest {
+  optional int32 page_number = 2;
+  optional int32 results_per_page = 3;
+}
+
+message SearchResponse {
+  repeated string results = 1;
+}

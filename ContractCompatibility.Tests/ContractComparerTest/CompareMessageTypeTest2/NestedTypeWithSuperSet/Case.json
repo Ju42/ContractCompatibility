@@ -1,7 +1,7 @@
 [
   "ContractX.proto",
-  "SearchResponse.Result",
+  ".SearchResponse.Result",
   "ContractY.proto",
-  "SearchResponse.Result",
+  ".SearchResponse.Result",
   "SuperSet"
 ]

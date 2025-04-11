@@ -30,26 +30,85 @@ public class ContractComparer
         return fileDescriptorSet.Files.Single();
     }
 
-    public ContractComparisonResult CompareMessageType(string consumerMessageTypeName, string producerMessageTypeName)
+    public ContractComparisonResult CompareService(string consumerServiceName, string producerServiceName)
     {
 #if NETSTANDARD2_0
-        if (consumerMessageTypeName == null) throw new ArgumentNullException(nameof(consumerMessageTypeName));
-        if (producerMessageTypeName == null) throw new ArgumentNullException(nameof(producerMessageTypeName));
+        if (consumerServiceName == null) throw new ArgumentNullException(nameof(consumerServiceName));
+        if (producerServiceName == null) throw new ArgumentNullException(nameof(producerServiceName));
 #else
-        ArgumentNullException.ThrowIfNull(consumerMessageTypeName, nameof(consumerMessageTypeName));
-        ArgumentNullException.ThrowIfNull(producerMessageTypeName, nameof(producerMessageTypeName));
+        ArgumentNullException.ThrowIfNull(consumerServiceName, nameof(consumerServiceName));
+        ArgumentNullException.ThrowIfNull(producerServiceName, nameof(producerServiceName));
 #endif
-        
-        var consumerMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMessageTypeName);
 
-        var producerMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMessageTypeName);
+        var consumerService = GetServiceFromFileDescriptorProto(_consumerFileDescriptorProto, consumerServiceName);
+
+        var producerService = GetServiceFromFileDescriptorProto(_producerFileDescriptorProto, producerServiceName);
+
+        return CompareServiceDescriptorProto(consumerService, producerService);
+    }
+
+    private static ServiceDescriptorProto GetServiceFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string serviceFullyQualifiedName)
+    {
+        var serviceName = serviceFullyQualifiedName.Substring(1);
+        return fileDescriptorProto.Services.Single(service => service.Name == serviceName);
+    }
+
+    private ContractComparisonResult CompareServiceDescriptorProto(ServiceDescriptorProto consumerServiceDescriptorProto, ServiceDescriptorProto producerServiceDescriptorProto)
+    {
+        var consumerMethodDescriptorProtos = consumerServiceDescriptorProto.Methods;
+        var producerMethodDescriptorProtos = producerServiceDescriptorProto.Methods;
+        return AggregateContractComparisonResults(consumerMethodDescriptorProtos.Count == producerMethodDescriptorProtos.Count ?
+            CompareMethodDescriptorProtos(consumerMethodDescriptorProtos, producerMethodDescriptorProtos)
+            : consumerMethodDescriptorProtos.Count > producerMethodDescriptorProtos.Count ?
+                CompareMethodDescriptorProtos(producerMethodDescriptorProtos, consumerMethodDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
+                : CompareMethodDescriptorProtos(consumerMethodDescriptorProtos, producerMethodDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+    }
+
+    private IEnumerable<ContractComparisonResult> CompareMethodDescriptorProtos(IEnumerable<MethodDescriptorProto> consumerMethods, IEnumerable<MethodDescriptorProto> producerMethods)
+    {
+        var producerMethodDictionary = producerMethods.ToDictionary(method => method.Name);
+
+        return consumerMethods.Select(consumerMethod =>
+        {
+            if (!producerMethodDictionary.TryGetValue(consumerMethod.Name, out var producerMethod))
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
+
+            var consumerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.InputType);
+            var producerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMethod.InputType);
+            if (CompareDescriptorProto(consumerMethodsInputMessageType, producerMethodsInputMessageType) != ContractComparisonResult.Equal)
+            {
+                return ContractComparisonResult.NotCompatible;
+            }
+
+            var consumerMethodsOutputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.OutputType);
+            var producerMethodsOutputMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMethod.OutputType);
+
+            return CompareDescriptorProto(consumerMethodsOutputMessageType, producerMethodsOutputMessageType);
+        });
+    }
+
+    public ContractComparisonResult CompareMessageType(string consumerMessageTypeFullyQualifiedName, string producerMessageTypeFullyQualifiedName)
+    {
+#if NETSTANDARD2_0
+        if (consumerMessageTypeFullyQualifiedName == null) throw new ArgumentNullException(nameof(consumerMessageTypeFullyQualifiedName));
+        if (producerMessageTypeFullyQualifiedName == null) throw new ArgumentNullException(nameof(producerMessageTypeFullyQualifiedName));
+#else
+        ArgumentNullException.ThrowIfNull(consumerMessageTypeFullyQualifiedName, nameof(consumerMessageTypeFullyQualifiedName));
+        ArgumentNullException.ThrowIfNull(producerMessageTypeFullyQualifiedName, nameof(producerMessageTypeFullyQualifiedName));
+#endif
+
+        var consumerMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMessageTypeFullyQualifiedName);
+
+        var producerMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMessageTypeFullyQualifiedName);
 
         return CompareMessageType(consumerMessageType, producerMessageType);
     }
 
-    private static DescriptorProto GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeName)
+    private static DescriptorProto GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeFullyQualifiedName)
     {
-        var pathToType = messageTypeName.Split('.');
+        var pathToType = messageTypeFullyQualifiedName.Substring(1).Split('.');
         var higherLevelMessageType = fileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == pathToType.First());
         return pathToType.Skip(1).Aggregate(higherLevelMessageType,
             (currentMessageType, nestedTypeName) =>
@@ -139,7 +198,7 @@ public class ContractComparer
         IEnumerable<EnumValueDescriptorProto> producerEnumValues)
     {
         var producerEnumValuesDictionary = producerEnumValues.ToDictionary(enumValues => enumValues.Number);
-        
+
         return consumerEnumValues.Select(consumerEnumValue => producerEnumValuesDictionary.ContainsKey(consumerEnumValue.Number) ?
             ContractComparisonResult.Equal
             : ContractComparisonResult.NotCompatible);
@@ -174,7 +233,7 @@ public class ContractComparer
                     aggregatedContractComparisonResult = ContractComparisonResult.SubSet;
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException();
+                    throw new NotImplementedException($"No logic implemented for {contractComparisonResult}");
             }
         }
 

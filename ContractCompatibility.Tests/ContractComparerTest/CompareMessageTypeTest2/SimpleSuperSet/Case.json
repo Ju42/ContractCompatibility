@@ -1,7 +1,7 @@
 [
   "ContractX.proto",
-  "SearchRequest",
+  ".SearchRequest",
   "ContractY.proto",
-  "SearchRequest",
+  ".SearchRequest",
   "SuperSet"
 ]

@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+message DummyMessage {
+  optional DummyFieldType1 field1 = 1;
+  optional DummyFieldType2 field2 = 2;
+}
+
+message DummyFieldType1 {
+  optional int32 count = 1;
+}
+
+message DummyFieldType2 {
+  optional int32 count = 1;
+  optional string name = 2;  
+}

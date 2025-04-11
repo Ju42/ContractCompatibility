@@ -1,0 +1,7 @@
+[
+  "ContractX.proto",
+  ".DummyMessage",
+  "ContractY.proto",
+  ".DummyMessage",
+  "NotCompatible"
+]

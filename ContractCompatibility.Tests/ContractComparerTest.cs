@@ -18,7 +18,7 @@ public sealed class ContractComparerTest
     public void CompareMessageTypeTest1_ANullParameterThrowsAnException(string? messageTypeNameX, string? messageTypeNameY)
     {
         var comparer = new ContractComparer(new ProtoFile("toto", "tata"),  new ProtoFile("toto", "tata"));
-        
+
         Assert.That(() => comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Throws.ArgumentNullException);
     }
 
@@ -28,5 +28,22 @@ public sealed class ContractComparerTest
         var comparer = new ContractComparer(new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
 
         Assert.That(comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Is.EqualTo(expectedContractComparisonResult));
+    }
+
+    [TestCase("toto", null)]
+    [TestCase(null, "toto")]
+    public void CompareServiceTest1_ANullParameterThrowsAnException(string? serviceNameX, string? serviceNameY)
+    {
+        var comparer = new ContractComparer(new ProtoFile("toto", "tata"),  new ProtoFile("toto", "tata"));
+
+        Assert.That(() => comparer.CompareService(serviceNameX, serviceNameY), Throws.ArgumentNullException);
+    }
+
+    [TestCaseFromFiles]
+    public void CompareServiceTest2(TestData x, string serviceNameX, TestData y, string serviceNameY, ContractComparisonResult expectedContractComparisonResult)
+    {
+        var comparer = new ContractComparer(new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
+
+        Assert.That(comparer.CompareService(serviceNameX, serviceNameY), Is.EqualTo(expectedContractComparisonResult));
     }
 }
