@@ -30,6 +30,33 @@ public sealed class ContractComparerTest
         Assert.That(comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Is.EqualTo(expectedContractComparisonResult));
     }
 
+    private sealed class FileSystemWrapper : IFileSystem
+    {
+        private string _rootPath;
+        public FileSystemWrapper(string rootPath)
+        {
+            _rootPath = rootPath;
+        }
+
+        public bool Exists(string path)
+        {
+            return File.Exists(Path.Combine(_rootPath, path));
+        }
+
+        public TextReader OpenText(string path)
+        {
+            return File.OpenText(Path.Combine(_rootPath, path));
+        }
+    }
+
+    [TestCaseFromFiles]
+    public void CompareMessageTypeTest3_UsingACustomIFileSystemWorksToFindImports(TestData x, string messageTypeNameX, TestData y, string messageTypeNameY, ContractComparisonResult expectedContractComparisonResult)
+    {
+        var comparer = new ContractComparer(new FileSystemWrapper(Path.GetDirectoryName(x.Path)), new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
+
+        Assert.That(comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Is.EqualTo(expectedContractComparisonResult));
+    }
+
     [TestCase("toto", null)]
     [TestCase(null, "toto")]
     public void CompareServiceTest1_ANullParameterThrowsAnException(string? serviceNameX, string? serviceNameY)

@@ -1,0 +1,7 @@
+syntax = "proto2";
+
+import "ResultY.proto";
+
+message SearchResponse {
+    optional Result result = 1;
+}

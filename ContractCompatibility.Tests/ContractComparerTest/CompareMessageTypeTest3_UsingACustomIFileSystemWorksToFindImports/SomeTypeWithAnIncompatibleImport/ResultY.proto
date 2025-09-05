@@ -1,0 +1,5 @@
+syntax = "proto2";
+
+message Result {
+    optional string value = 2;
+}

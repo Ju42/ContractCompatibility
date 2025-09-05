@@ -5,8 +5,31 @@ namespace ContractCompatibility;
 
 public class ContractComparer
 {
-    private readonly FileDescriptorProto _consumerFileDescriptorProto;
-    private readonly FileDescriptorProto _producerFileDescriptorProto;
+    private readonly Lazy<FileDescriptorProto> _lazyConsumerFileDescriptorProto;
+    private FileDescriptorProto _consumerFileDescriptorProto => _lazyConsumerFileDescriptorProto.Value;
+    private readonly Lazy<FileDescriptorProto> _lazyProducerFileDescriptorProto;
+    private FileDescriptorProto _producerFileDescriptorProto => _lazyProducerFileDescriptorProto.Value;
+    private FileSystemWrapper FileSystem { get; }
+
+    private sealed class FileSystemWrapper : Google.Protobuf.Reflection.IFileSystem
+    {
+        private IFileSystem _fileSystem;
+
+        public FileSystemWrapper(IFileSystem fileSystem)
+        {
+            _fileSystem = fileSystem;
+        }
+
+        public bool Exists(string path)
+        {
+            return _fileSystem.Exists(path);
+        }
+
+        public TextReader OpenText(string path)
+        {
+            return _fileSystem.OpenText(path);
+        }
+    }
 
     public ContractComparer(ProtoFile consumer, ProtoFile producer)
     {
@@ -17,17 +40,23 @@ public class ContractComparer
         ArgumentNullException.ThrowIfNull(consumer, nameof(consumer));
         ArgumentNullException.ThrowIfNull(producer, nameof(producer));
 #endif
-        _consumerFileDescriptorProto = ToFileDescriptorProto(consumer);
-        _producerFileDescriptorProto = ToFileDescriptorProto(producer);
+        _lazyConsumerFileDescriptorProto = new Lazy<FileDescriptorProto>(() => ToFileDescriptorProto(consumer));
+        _lazyProducerFileDescriptorProto = new Lazy<FileDescriptorProto>(() => ToFileDescriptorProto(producer));
     }
 
-    private static FileDescriptorProto ToFileDescriptorProto(ProtoFile protoFile)
+    public ContractComparer(IFileSystem fileSystem, ProtoFile consumer, ProtoFile producer) : this(consumer, producer)
     {
-        var fileDescriptorSet = new FileDescriptorSet();
+        FileSystem = new FileSystemWrapper(fileSystem);
+    }
+
+    private FileDescriptorProto ToFileDescriptorProto(ProtoFile protoFile)
+    {
+        var fileDescriptorSet = new FileDescriptorSet { FileSystem = FileSystem };
+        fileDescriptorSet.AddImportPath("");
         fileDescriptorSet.Add(protoFile.FileName, true, new StringReader(protoFile.FileContent));
         fileDescriptorSet.Process();
 
-        return fileDescriptorSet.Files.Single();
+        return fileDescriptorSet.Files.Single(file => file.Name == protoFile.FileName);
     }
 
     public ContractComparisonResult CompareService(string consumerServiceName, string producerServiceName)
