@@ -1,4 +1,5 @@
-﻿using Google.Protobuf.Reflection;
+﻿using System.Diagnostics;
+using Google.Protobuf.Reflection;
 using ProtoBuf.Reflection;
 
 namespace ContractCompatibility;
@@ -11,7 +12,7 @@ public class ContractComparer
     private FileDescriptorProto _producerFileDescriptorProto => _lazyProducerFileDescriptorProto.Value;
     private FileSystemWrapper FileSystem { get; }
 
-    private sealed class FileSystemWrapper : Google.Protobuf.Reflection.IFileSystem
+    public sealed class FileSystemWrapper : Google.Protobuf.Reflection.IFileSystem
     {
         private IFileSystem _fileSystem;
 
@@ -89,11 +90,11 @@ public class ContractComparer
         return AggregateContractComparisonResults(consumerMethodDescriptorProtos.Count == producerMethodDescriptorProtos.Count ?
             CompareMethodDescriptorProtos(consumerMethodDescriptorProtos, producerMethodDescriptorProtos)
             : consumerMethodDescriptorProtos.Count > producerMethodDescriptorProtos.Count ?
-                CompareMethodDescriptorProtos(producerMethodDescriptorProtos, consumerMethodDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
-                : CompareMethodDescriptorProtos(consumerMethodDescriptorProtos, producerMethodDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+                CompareMethodDescriptorProtos(producerMethodDescriptorProtos, consumerMethodDescriptorProtos).Prepend(ContractComparison.SuperSet)
+                : CompareMethodDescriptorProtos(consumerMethodDescriptorProtos, producerMethodDescriptorProtos).Prepend(ContractComparison.SubSet)).Result;
     }
 
-    private IEnumerable<ContractComparisonResult> CompareMethodDescriptorProtos(IEnumerable<MethodDescriptorProto> consumerMethods, IEnumerable<MethodDescriptorProto> producerMethods)
+    private IEnumerable<ContractComparison> CompareMethodDescriptorProtos(IEnumerable<MethodDescriptorProto> consumerMethods, IEnumerable<MethodDescriptorProto> producerMethods)
     {
         var producerMethodDictionary = producerMethods.ToDictionary(method => method.Name);
 
@@ -101,14 +102,14 @@ public class ContractComparer
         {
             if (!producerMethodDictionary.TryGetValue(consumerMethod.Name, out var producerMethod))
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             var consumerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.InputType);
             var producerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMethod.InputType);
-            if (CompareDescriptorProto(consumerMethodsInputMessageType, producerMethodsInputMessageType) != ContractComparisonResult.Equal)
+            if (CompareDescriptorProto(consumerMethodsInputMessageType, producerMethodsInputMessageType) != ContractComparison.Equal)
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             var consumerMethodsOutputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.OutputType);
@@ -132,7 +133,7 @@ public class ContractComparer
 
         var producerMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMessageTypeFullyQualifiedName);
 
-        return CompareMessageType(consumerMessageType, producerMessageType);
+        return CompareMessageType(consumerMessageType, producerMessageType).Result;
     }
 
     private static DescriptorProto GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeFullyQualifiedName)
@@ -144,23 +145,44 @@ public class ContractComparer
                 currentMessageType.NestedTypes.First(nestedType => nestedType.Name == nestedTypeName));
     }
 
-    private ContractComparisonResult CompareMessageType(DescriptorProto consumerMessageType, DescriptorProto producerMessageType)
+    private record ContractComparisonCacheKey(DescriptorProto ConsumerProto, DescriptorProto ProducerProto);
+    private readonly IDictionary<ContractComparisonCacheKey, ContractComparison> _contractComparisonCache = new Dictionary<ContractComparisonCacheKey, ContractComparison>();
+
+    private ContractComparison CompareMessageType(DescriptorProto consumerMessageType, DescriptorProto producerMessageType)
     {
-        return CompareDescriptorProto(consumerMessageType, producerMessageType);
+        var contractComparisonCacheKey = new ContractComparisonCacheKey(consumerMessageType, producerMessageType);
+        if (_contractComparisonCache.TryGetValue(contractComparisonCacheKey, out var contractComparison))
+        {
+            return contractComparison;
+        }
+
+        _contractComparisonCache[contractComparisonCacheKey] = ContractComparison.InProgress;
+
+        return _contractComparisonCache[contractComparisonCacheKey] = CompareDescriptorProto(consumerMessageType, producerMessageType);
     }
 
-    private ContractComparisonResult CompareDescriptorProto(DescriptorProto consumerDescriptorProto, DescriptorProto producerDescriptorProto)
+    private ContractComparison CompareDescriptorProto(DescriptorProto consumerDescriptorProto, DescriptorProto producerDescriptorProto)
     {
         var consumerFieldDescriptorProtos = consumerDescriptorProto.Fields;
         var producerFieldDescriptorProtos = producerDescriptorProto.Fields;
         return AggregateContractComparisonResults(consumerFieldDescriptorProtos.Count == producerFieldDescriptorProtos.Count
             ? CompareFieldDescriptorProtos(consumerFieldDescriptorProtos, producerFieldDescriptorProtos)
             : consumerFieldDescriptorProtos.Count > producerFieldDescriptorProtos.Count ?
-                CompareFieldDescriptorProtos(producerFieldDescriptorProtos, consumerFieldDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
-                : CompareFieldDescriptorProtos(consumerFieldDescriptorProtos, producerFieldDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+                CompareFieldDescriptorProtos(producerFieldDescriptorProtos, consumerFieldDescriptorProtos).Select(Invert).Prepend(ContractComparison.SuperSet)
+                : CompareFieldDescriptorProtos(consumerFieldDescriptorProtos, producerFieldDescriptorProtos).Prepend(ContractComparison.SubSet));
     }
 
-    private IEnumerable<ContractComparisonResult> CompareFieldDescriptorProtos(IEnumerable<FieldDescriptorProto> consumerFields, IEnumerable<FieldDescriptorProto> producerFields)
+    private static ContractComparison Invert(ContractComparison contractComparison)
+    {
+        return contractComparison switch
+        {
+            { Result: ContractComparisonResult.SuperSet } => ContractComparison.SubSet,
+            { Result: ContractComparisonResult.SubSet } => ContractComparison.SuperSet,
+            _ => contractComparison
+        };
+    }
+
+    private IEnumerable<ContractComparison> CompareFieldDescriptorProtos(IEnumerable<FieldDescriptorProto> consumerFields, IEnumerable<FieldDescriptorProto> producerFields)
     {
         var producerFieldDictionary = producerFields.ToDictionary(field => field.Number);
 
@@ -168,34 +190,34 @@ public class ContractComparer
         {
             if (!producerFieldDictionary.TryGetValue(consumerField.Number, out var producerField))
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             if (consumerField.type != producerField.type)
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             if (consumerField.label != producerField.label)
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             if (AreFieldOptionsIncompatible(consumerField.Options, producerField.Options))
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             if (consumerField.DefaultValue != producerField.DefaultValue)
             {
-                return ContractComparisonResult.NotCompatible;
+                return ContractComparison.NotCompatible;
             }
 
             return consumerField.type switch
             {
                 FieldDescriptorProto.Type.TypeMessage => CompareMessageType(consumerField.GetMessageType(), producerField.GetMessageType()),
                 FieldDescriptorProto.Type.TypeEnum => CompareEnumType(consumerField.GetEnumType(), producerField.GetEnumType()),
-                _ => ContractComparisonResult.Equal
+                _ => ContractComparison.Equal
             };
         });
     }
@@ -210,7 +232,7 @@ public class ContractComparer
 
     }
 
-    private ContractComparisonResult CompareEnumType(EnumDescriptorProto consumerEnumDescriptorProto, EnumDescriptorProto producerEnumDescriptorProto)
+    private ContractComparison CompareEnumType(EnumDescriptorProto consumerEnumDescriptorProto, EnumDescriptorProto producerEnumDescriptorProto)
     {
         var consumerEnumValueDescriptorProtos = consumerEnumDescriptorProto.Values;
         var producerEnumValueDescriptorProtos = producerEnumDescriptorProto.Values;
@@ -218,37 +240,41 @@ public class ContractComparer
             consumerEnumValueDescriptorProtos.Count == producerEnumValueDescriptorProtos.Count
                 ? CompareEnumValueDescriptorProtos(consumerEnumValueDescriptorProtos, producerEnumValueDescriptorProtos)
                 : consumerEnumValueDescriptorProtos.Count > producerEnumValueDescriptorProtos.Count
-                    ? CompareEnumValueDescriptorProtos(producerEnumValueDescriptorProtos, consumerEnumValueDescriptorProtos).Prepend(ContractComparisonResult.SuperSet)
-                    : CompareEnumValueDescriptorProtos(consumerEnumValueDescriptorProtos, producerEnumValueDescriptorProtos).Prepend(ContractComparisonResult.SubSet));
+                    ? CompareEnumValueDescriptorProtos(producerEnumValueDescriptorProtos, consumerEnumValueDescriptorProtos).Prepend(ContractComparison.SuperSet)
+                    : CompareEnumValueDescriptorProtos(consumerEnumValueDescriptorProtos, producerEnumValueDescriptorProtos).Prepend(ContractComparison.SubSet));
     }
 
-    private static IEnumerable<ContractComparisonResult> CompareEnumValueDescriptorProtos(
+    private static IEnumerable<ContractComparison> CompareEnumValueDescriptorProtos(
         IEnumerable<EnumValueDescriptorProto> consumerEnumValues,
         IEnumerable<EnumValueDescriptorProto> producerEnumValues)
     {
         var producerEnumValuesDictionary = producerEnumValues.ToDictionary(enumValues => enumValues.Number);
 
         return consumerEnumValues.Select(consumerEnumValue => producerEnumValuesDictionary.ContainsKey(consumerEnumValue.Number) ?
-            ContractComparisonResult.Equal
-            : ContractComparisonResult.NotCompatible);
+            ContractComparison.Equal
+            : ContractComparison.NotCompatible);
     }
 
-    private static ContractComparisonResult AggregateContractComparisonResults(IEnumerable<ContractComparisonResult> contractComparisonResults)
+    private static ContractComparison AggregateContractComparisonResults(IEnumerable<ContractComparison> contractComparisons)
     {
         var aggregatedContractComparisonResult = ContractComparisonResult.Equal;
 
-        foreach (var contractComparisonResult in contractComparisonResults)
+        foreach (var contractComparison in contractComparisons)
         {
-            switch (contractComparisonResult)
+            if (contractComparison.Sate == ContractComparisonState.InProgress)
+            {
+                continue;
+            }
+            switch (contractComparison.Result)
             {
                 case ContractComparisonResult.NotCompatible:
-                    return ContractComparisonResult.NotCompatible;
+                    return ContractComparison.NotCompatible;
                 case ContractComparisonResult.Equal:
                     break;
                 case ContractComparisonResult.SuperSet:
                     if (aggregatedContractComparisonResult == ContractComparisonResult.SubSet)
                     {
-                        return ContractComparisonResult.NotCompatible;
+                        return ContractComparison.NotCompatible;
                     }
 
                     aggregatedContractComparisonResult = ContractComparisonResult.SuperSet;
@@ -256,16 +282,16 @@ public class ContractComparer
                 case ContractComparisonResult.SubSet:
                     if (aggregatedContractComparisonResult == ContractComparisonResult.SuperSet)
                     {
-                        return ContractComparisonResult.NotCompatible;
+                        return ContractComparison.NotCompatible;
                     }
 
                     aggregatedContractComparisonResult = ContractComparisonResult.SubSet;
                     break;
                 default:
-                    throw new NotImplementedException($"No logic implemented for {contractComparisonResult}");
+                    throw new NotImplementedException($"No logic implemented for {contractComparison}");
             }
         }
 
-        return aggregatedContractComparisonResult;
+        return ContractComparison.FromResult(aggregatedContractComparisonResult);
     }
 }

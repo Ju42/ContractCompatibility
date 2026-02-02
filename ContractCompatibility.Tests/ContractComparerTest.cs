@@ -1,4 +1,6 @@
-﻿namespace ContractCompatibility.Tests;
+﻿using Google.Protobuf.Reflection;
+
+namespace ContractCompatibility.Tests;
 
 public sealed class ContractComparerTest
 {

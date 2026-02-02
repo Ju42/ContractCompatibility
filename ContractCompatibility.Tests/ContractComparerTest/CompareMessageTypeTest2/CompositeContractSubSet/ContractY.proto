@@ -1,0 +1,7 @@
+syntax = "proto2";
+
+message Node {
+  optional int32 id = 1;
+  repeated Node children = 2;
+  optional string Name = 3;
+}
