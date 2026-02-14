@@ -1,7 +1,7 @@
 [
-  "ContractX.proto",
+  "X/ContractX.proto",
   ".SearchResponse",
-  "ContractY.proto",
+  "Y/ContractY.proto",
   ".SearchResponse",
   "Equal"
 ]

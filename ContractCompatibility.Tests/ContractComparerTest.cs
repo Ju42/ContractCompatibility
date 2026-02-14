@@ -1,4 +1,4 @@
-﻿using Google.Protobuf.Reflection;
+﻿using System.Collections;
 
 namespace ContractCompatibility.Tests;
 
@@ -13,6 +13,27 @@ public sealed class ContractComparerTest
     public void ConstructorTest_ANullParameterThrowsAnException(ProtoFile? x, ProtoFile? y)
     {
         Assert.That(() => new ContractComparer(x, y), Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public void GetParsingErrorsTest()
+    {
+        var contractComparer = new ContractComparer(new ProtoFile("toto.proto", "toto content"), new ProtoFile("tutu.proto", "tutu content"));
+
+        var parsingErrors = contractComparer.GetParsingErrors();
+
+        Assert.That(parsingErrors.ConsumerErrors, Is.EqualTo(new[]
+        {
+            new ParsingError(1, 1, "toto.proto", "toto content", "syntax error: 'toto'", true, "toto"),
+            new ParsingError(1, 1, "toto.proto", "toto content", "unknown error", true, "toto"),
+            new ParsingError(1, 1, "toto.proto", "toto content", "no syntax specified; it is strongly recommended to specify 'syntax=\"proto2\";' or 'syntax=\"proto3\";'", false, "toto")
+        }));
+        Assert.That(parsingErrors.ProducerErrors, Is.EqualTo(new[]
+        {
+            new ParsingError(1, 1, "tutu.proto", "tutu content", "syntax error: 'tutu'", true, "tutu"),
+            new ParsingError(1, 1, "tutu.proto", "tutu content", "unknown error", true, "tutu"),
+            new ParsingError(1, 1, "tutu.proto", "tutu content", "no syntax specified; it is strongly recommended to specify 'syntax=\"proto2\";' or 'syntax=\"proto3\";'", false, "tutu")
+        }));
     }
 
     [TestCase("toto", null)]
@@ -30,12 +51,15 @@ public sealed class ContractComparerTest
         var comparer = new ContractComparer(new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
 
         Assert.That(comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Is.EqualTo(expectedContractComparisonResult));
+        var parsingErrors = comparer.GetParsingErrors();
+        Assert.That(parsingErrors.ConsumerErrors, Is.Empty);
+        Assert.That(parsingErrors.ProducerErrors, Is.Empty);
     }
 
-    private sealed class FileSystemWrapper : IFileSystem
+    private sealed class StoreContractSchemaWrapper : IStoreContractSchema
     {
         private string _rootPath;
-        public FileSystemWrapper(string rootPath)
+        public StoreContractSchemaWrapper(string rootPath)
         {
             _rootPath = rootPath;
         }
@@ -49,14 +73,36 @@ public sealed class ContractComparerTest
         {
             return File.OpenText(Path.Combine(_rootPath, path));
         }
+
+        public IEnumerator<FilePath> GetEnumerator()
+        {
+            return Directory
+                .GetFiles(_rootPath, "*.proto", SearchOption.AllDirectories)
+                .Select(path => (FilePath)GetRelativeToRootPath(path))
+                .GetEnumerator();
+        }
+
+        private string GetRelativeToRootPath(string path)
+        {
+            var relativeToRootPath = path.Substring(_rootPath.Length);
+            return relativeToRootPath[0] == Path.DirectorySeparatorChar || relativeToRootPath[0] == Path.AltDirectorySeparatorChar ? relativeToRootPath.Substring(1) : relativeToRootPath;
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
     }
 
     [TestCaseFromFiles]
     public void CompareMessageTypeTest3_UsingACustomIFileSystemWorksToFindImports(TestData x, string messageTypeNameX, TestData y, string messageTypeNameY, ContractComparisonResult expectedContractComparisonResult)
     {
-        var comparer = new ContractComparer(new FileSystemWrapper(Path.GetDirectoryName(x.Path)), new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
+        var comparer = new ContractComparer(new StoreContractSchemaWrapper(Path.GetDirectoryName(x.Path)), new StoreContractSchemaWrapper(Path.GetDirectoryName(y.Path)));
 
         Assert.That(comparer.CompareMessageType(messageTypeNameX, messageTypeNameY), Is.EqualTo(expectedContractComparisonResult));
+        var parsingErrors = comparer.GetParsingErrors();
+        Assert.That(parsingErrors.ConsumerErrors, Is.Empty);
+        Assert.That(parsingErrors.ProducerErrors, Is.Empty);
     }
 
     [TestCase("toto", null)]
@@ -74,5 +120,8 @@ public sealed class ContractComparerTest
         var comparer = new ContractComparer(new ProtoFile(x.FileName, x.Text), new ProtoFile(y.FileName, y.Text));
 
         Assert.That(comparer.CompareService(serviceNameX, serviceNameY), Is.EqualTo(expectedContractComparisonResult));
+        var parsingErrors = comparer.GetParsingErrors();
+        Assert.That(parsingErrors.ConsumerErrors, Is.Empty);
+        Assert.That(parsingErrors.ProducerErrors, Is.Empty);
     }
 }

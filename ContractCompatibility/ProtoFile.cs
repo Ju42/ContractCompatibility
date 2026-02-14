@@ -1,3 +1,3 @@
 namespace ContractCompatibility;
 
-public sealed record ProtoFile(string FileName, string FileContent);
+public sealed record ProtoFile(FilePath FileName, string FileContent);

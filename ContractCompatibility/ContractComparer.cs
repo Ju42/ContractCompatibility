@@ -1,36 +1,12 @@
-﻿using System.Diagnostics;
-using Google.Protobuf.Reflection;
+﻿using Google.Protobuf.Reflection;
 using ProtoBuf.Reflection;
 
 namespace ContractCompatibility;
 
 public class ContractComparer
 {
-    private readonly Lazy<FileDescriptorProto> _lazyConsumerFileDescriptorProto;
-    private FileDescriptorProto _consumerFileDescriptorProto => _lazyConsumerFileDescriptorProto.Value;
-    private readonly Lazy<FileDescriptorProto> _lazyProducerFileDescriptorProto;
-    private FileDescriptorProto _producerFileDescriptorProto => _lazyProducerFileDescriptorProto.Value;
-    private FileSystemWrapper FileSystem { get; }
-
-    public sealed class FileSystemWrapper : Google.Protobuf.Reflection.IFileSystem
-    {
-        private IFileSystem _fileSystem;
-
-        public FileSystemWrapper(IFileSystem fileSystem)
-        {
-            _fileSystem = fileSystem;
-        }
-
-        public bool Exists(string path)
-        {
-            return _fileSystem.Exists(path);
-        }
-
-        public TextReader OpenText(string path)
-        {
-            return _fileSystem.OpenText(path);
-        }
-    }
+    private readonly ProtoDescriptorStore _consumerProtoDescriptorStore;
+    private readonly ProtoDescriptorStore _producerProtoDescriptorStore;
 
     public ContractComparer(ProtoFile consumer, ProtoFile producer)
     {
@@ -41,23 +17,27 @@ public class ContractComparer
         ArgumentNullException.ThrowIfNull(consumer, nameof(consumer));
         ArgumentNullException.ThrowIfNull(producer, nameof(producer));
 #endif
-        _lazyConsumerFileDescriptorProto = new Lazy<FileDescriptorProto>(() => ToFileDescriptorProto(consumer));
-        _lazyProducerFileDescriptorProto = new Lazy<FileDescriptorProto>(() => ToFileDescriptorProto(producer));
+        _consumerProtoDescriptorStore = new ProtoDescriptorStore(new SingleFileContractSchemaStore(consumer));
+        _producerProtoDescriptorStore = new ProtoDescriptorStore(new SingleFileContractSchemaStore(producer));
     }
 
-    public ContractComparer(IFileSystem fileSystem, ProtoFile consumer, ProtoFile producer) : this(consumer, producer)
+    public ContractComparer(IStoreContractSchema consumerContractSchemaStore, IStoreContractSchema producerContractSchemaStore)
     {
-        FileSystem = new FileSystemWrapper(fileSystem);
+#if NETSTANDARD2_0
+        if (consumerContractSchemaStore == null) throw new ArgumentNullException(nameof(consumerContractSchemaStore));
+        if (producerContractSchemaStore == null) throw new ArgumentNullException(nameof(producerContractSchemaStore));
+#else
+        ArgumentNullException.ThrowIfNull(consumerContractSchemaStore, nameof(consumerContractSchemaStore));
+        ArgumentNullException.ThrowIfNull(producerContractSchemaStore, nameof(producerContractSchemaStore));
+#endif
+
+        _consumerProtoDescriptorStore = new ProtoDescriptorStore(consumerContractSchemaStore);
+        _producerProtoDescriptorStore = new ProtoDescriptorStore(producerContractSchemaStore);
     }
 
-    private FileDescriptorProto ToFileDescriptorProto(ProtoFile protoFile)
+    public ParsingErrors GetParsingErrors()
     {
-        var fileDescriptorSet = new FileDescriptorSet { FileSystem = FileSystem };
-        fileDescriptorSet.AddImportPath("");
-        fileDescriptorSet.Add(protoFile.FileName, true, new StringReader(protoFile.FileContent));
-        fileDescriptorSet.Process();
-
-        return fileDescriptorSet.Files.Single(file => file.Name == protoFile.FileName);
+        return new ParsingErrors(_consumerProtoDescriptorStore.GetParsingErrors().ToList(), _producerProtoDescriptorStore.GetParsingErrors().ToList());
     }
 
     public ContractComparisonResult CompareService(string consumerServiceName, string producerServiceName)
@@ -70,17 +50,11 @@ public class ContractComparer
         ArgumentNullException.ThrowIfNull(producerServiceName, nameof(producerServiceName));
 #endif
 
-        var consumerService = GetServiceFromFileDescriptorProto(_consumerFileDescriptorProto, consumerServiceName);
+        var consumerService = _consumerProtoDescriptorStore.GetService(consumerServiceName);
 
-        var producerService = GetServiceFromFileDescriptorProto(_producerFileDescriptorProto, producerServiceName);
+        var producerService = _producerProtoDescriptorStore.GetService(producerServiceName);
 
         return CompareServiceDescriptorProto(consumerService, producerService);
-    }
-
-    private static ServiceDescriptorProto GetServiceFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string serviceFullyQualifiedName)
-    {
-        var serviceName = serviceFullyQualifiedName.Substring(1);
-        return fileDescriptorProto.Services.Single(service => service.Name == serviceName);
     }
 
     private ContractComparisonResult CompareServiceDescriptorProto(ServiceDescriptorProto consumerServiceDescriptorProto, ServiceDescriptorProto producerServiceDescriptorProto)
@@ -105,15 +79,15 @@ public class ContractComparer
                 return ContractComparison.NotCompatible;
             }
 
-            var consumerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.InputType);
-            var producerMethodsInputMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMethod.InputType);
+            var consumerMethodsInputMessageType = _consumerProtoDescriptorStore.GetMessage(consumerMethod.InputType);
+            var producerMethodsInputMessageType = _producerProtoDescriptorStore.GetMessage(producerMethod.InputType);
             if (CompareDescriptorProto(consumerMethodsInputMessageType, producerMethodsInputMessageType) != ContractComparison.Equal)
             {
                 return ContractComparison.NotCompatible;
             }
 
-            var consumerMethodsOutputMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMethod.OutputType);
-            var producerMethodsOutputMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMethod.OutputType);
+            var consumerMethodsOutputMessageType = _consumerProtoDescriptorStore.GetMessage(consumerMethod.OutputType);
+            var producerMethodsOutputMessageType = _producerProtoDescriptorStore.GetMessage(producerMethod.OutputType);
 
             return CompareDescriptorProto(consumerMethodsOutputMessageType, producerMethodsOutputMessageType);
         });
@@ -129,20 +103,11 @@ public class ContractComparer
         ArgumentNullException.ThrowIfNull(producerMessageTypeFullyQualifiedName, nameof(producerMessageTypeFullyQualifiedName));
 #endif
 
-        var consumerMessageType = GetMessageTypeFromFileDescriptorProto(_consumerFileDescriptorProto, consumerMessageTypeFullyQualifiedName);
+        var consumerMessageType = _consumerProtoDescriptorStore.GetMessage(consumerMessageTypeFullyQualifiedName);
 
-        var producerMessageType = GetMessageTypeFromFileDescriptorProto(_producerFileDescriptorProto, producerMessageTypeFullyQualifiedName);
+        var producerMessageType =  _producerProtoDescriptorStore.GetMessage(producerMessageTypeFullyQualifiedName);
 
         return CompareMessageType(consumerMessageType, producerMessageType).Result;
-    }
-
-    private static DescriptorProto GetMessageTypeFromFileDescriptorProto(FileDescriptorProto fileDescriptorProto, string messageTypeFullyQualifiedName)
-    {
-        var pathToType = messageTypeFullyQualifiedName.Substring(1).Split('.');
-        var higherLevelMessageType = fileDescriptorProto.MessageTypes.Single(messageType => messageType.Name == pathToType.First());
-        return pathToType.Skip(1).Aggregate(higherLevelMessageType,
-            (currentMessageType, nestedTypeName) =>
-                currentMessageType.NestedTypes.First(nestedType => nestedType.Name == nestedTypeName));
     }
 
     private record ContractComparisonCacheKey(DescriptorProto ConsumerProto, DescriptorProto ProducerProto);
