@@ -28,7 +28,7 @@ test:
 package:
   stage: package
   script:
-    - ${COMMAND_WRAPPER} "dotnet pack --configuration Release --output nupkg -p:AssemblyVersion=${CI_COMMIT_TAG} -p:Version=${CI_COMMIT_TAG}"
+    - ${COMMAND_WRAPPER} "dotnet pack --configuration Release --output nupkg -p:AssemblyVersion=${CI_COMMIT_TAG} -p:Version=${CI_COMMIT_TAG} -p:RepositoryUrl=${CI_PROJECT_URL}"
   artifacts:
     paths:
       - nupkg
